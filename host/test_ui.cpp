@@ -196,6 +196,40 @@ int main() {
         tap(b, 100, 100);                        // the wake touch must not have toggled anything else
         CHECK(b.screen() == App::SCR_MAIN);
     }
+
+    // ---- bounce: a finger that flickers on and off must still be ONE tap ---------------------------------
+    {
+        App b; settingsDefaults(b.s); b.s.cal = a.s.cal; b.s.cal.valid = 1; b.s.autoHideSec = 0; settingsSave(b.s); b.begin(); run(b, 100);
+        // raw point for the gear button with the test calibration (identity-like mapping, swap=0)
+        const int gx = 300 + 24 * 3500 / 279 * 279 / 320 * 0;   // placeholder, replaced below
+        (void)gx;
+        const int rxg = b.s.cal.a0 + (24 - 20) * (b.s.cal.a1 - b.s.cal.a0) / 279;
+        const int ryg = b.s.cal.b0 + (24 - 20) * (b.s.cal.b1 - b.s.cal.b0) / 199;
+        long fills0 = g_gfx.fills, blits0 = g_gfx.blits;
+        // hide / show with taps in the middle: no full-screen repaint (that was the visible "flash")
+        tap(b, 160, 140);
+        printf("hide cost: fills=%ld blits=%ld\n", g_gfx.fills - fills0, g_gfx.blits - blits0);
+        CHECK(g_gfx.blits - blits0 <= 40);
+        CHECK(g_gfx.fills - fills0 <= 130);
+        tap(b, 160, 140);                        // buttons visible again
+        // noisy press on the gear: 2 ticks down, 1 tick up, repeated for 400 ms
+        for (int i = 0; i < 20; ++i) {
+            host_touch(true, rxg, ryg); host_advance(20); b.tick(); host_advance(20); b.tick();
+            host_touch(false, 0, 0);    host_advance(20); b.tick();
+            CHECK(b.screen() == App::SCR_MAIN);                       // still pressed, nothing fired yet
+        }
+        for (int i = 0; i < 8; ++i) { host_advance(20); b.tick(); }   // finger lifted
+        CHECK(b.screen() == App::SCR_SETTINGS);
+        shot("20_after_noisy_gear_tap");
+    }
+    // ---- icon buttons: pressed and normal -------------------------------------------------------------------
+    {
+        App b; settingsDefaults(b.s); b.s.cal = a.s.cal; b.s.cal.valid = 1; b.s.autoHideSec = 0; settingsSave(b.s); b.begin(); run(b, 100);
+        b.handleTouch({TouchEvt::DOWN, 24, 24});
+        shot("21_gear_pressed");
+        b.handleTouch({TouchEvt::UP, 200, 200});    // slid away: no action
+        CHECK(b.screen() == App::SCR_MAIN);
+    }
     printf("fails=%d blits=%ld\n", g_fail, g_gfx.blits);
     return g_fail != 0;
 }
