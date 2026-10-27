@@ -1,5 +1,7 @@
 #include "ui.h"
 
+#include "icons.h"
+
 #include <algorithm>
 #include <stdio.h>
 #include <string.h>
@@ -177,14 +179,24 @@ int App::digitStrength(int cell, uint32_t nowMs) const {
 
 void App::drawBackground() { fillBgRows(bg_, 0, 0, W, H); }
 
+void App::drawButton(int which, bool pressed) {
+    drawIconButton(which == 1 ? ICON_GEAR : ICON_POWER, which == 1 ? 6 : W - 50, 6, 44, bg_, pressed);
+}
+
 void App::drawButtons() {
     if (!uiVisible_) return;
-    const uint16_t pad = scaleColor(rgb(255, 255, 255), 16);
-    gfx().fillCircle(24, 24, 19, mix565(bg_.at(24), rgb(255, 255, 255), 40));
-    gfx().fillCircle(W - 24, 24, 19, mix565(bg_.at(24), rgb(255, 255, 255), 40));
-    (void)pad;
-    drawGear(24, 24, rgb(255, 255, 255));
-    drawPowerIcon(W - 24, 24, rgb(255, 255, 255), mix565(bg_.at(24), rgb(255, 255, 255), 40));
+    drawButton(1, pressedBtn_ == 1);
+    drawButton(2, pressedBtn_ == 2);
+}
+
+// Shows / hides the two corner buttons by repainting only their corners (no full-screen flash).
+void App::setButtonsVisible(bool visible) {
+    uiVisible_ = visible;
+    if (visible) { drawButtons(); return; }
+    fillBgRows(bg_, 0, 0, 56, 56);
+    fillBgRows(bg_, W - 56, 0, 56, 56);
+    const Geom g = geom();
+    if (g.y0 < 56) drawClockAll();      // a big clock reaches into the corners: repaint just its digits in place
 }
 
 void App::drawDateLine() {
@@ -251,7 +263,7 @@ void App::updateMain() {
     if (bg_.top != oldBg.top || bg_.bottom != oldBg.bottom) dirty_ = true;
     const Geom g = geom();
     const int layout = (g.hn * 31 + g.H) * 31 + s.clockFont * 7 + (g.x0 + 500) * 13 + (g.y0 + 500) * 17 +
-                       s.showDate * 3 + s.dateSize * 5 + s.dateFont * 41 + (ok ? 1 : 0) + (uiVisible_ ? 2 : 0) * 977 +
+                       s.showDate * 3 + s.dateSize * 5 + s.dateFont * 41 + (ok ? 1 : 0) +
                        (s.hour24 ? 11 : 0) + s.clockColor * 3;
     if (layout != shownLayout_) { dirty_ = true; shownLayout_ = layout; }
     if (dirty_) {
@@ -351,36 +363,47 @@ void App::doPower() {
 }
 
 void App::tick() {
-    static int miss = 0;
     const uint32_t ms = hal_millis();
     int rx = 0, ry = 0;
     const bool raw = hal_touch_read(rx, ry);
-    if (raw) { stable_ = std::min(stable_ + 1, 4); miss = 0; }
-    else { stable_ = 0; miss = std::min(miss + 1, 4); }
-    const bool pressed = stable_ >= 2;
-    const bool released = miss >= 3;
+    if (raw) { stable_ = std::min(stable_ + 1, 4); lastRawMs_ = ms; }
+    else stable_ = 0;
+    const bool valid = raw && stable_ >= 2;                         // two consecutive samples
+    // The panel flickers off for a few ms while a finger is down; only a pause of 90 ms is a release.
+    const bool holding = valid || ((pressed_ || warm_ > 0 || calN_ > 0) && ms - lastRawMs_ < 90);
 
     if (screen_ == SCR_CALIB && !calTest_) {
-        calibRaw(pressed, rx, ry);
+        calibRaw(valid, holding, rx, ry);
     } else {
         const Calibration &c = (screen_ == SCR_CALIB) ? calTmp_ : s.cal;
-        if (pressed) {
+        if (valid) {
             int x, y;
             mapTouch(c, rx, ry, x, y);
             if (!pressed_) {
-                pressed_ = true;
-                downX_ = lastX_ = x;
-                downY_ = lastY_ = y;
-                downMs_ = ms;
-                handleTouch({TouchEvt::DOWN, x, y});
-            } else if (abs(x - lastX_) >= 2 || abs(y - lastY_) >= 2) {
-                lastX_ = x;
-                lastY_ = y;
-                handleTouch({TouchEvt::MOVE, x, y});
+                // average the first samples: a finger that has just landed reads inaccurately
+                warmX_ += x; warmY_ += y; ++warm_;
+                if (warm_ >= 3) {
+                    pressed_ = true;
+                    downX_ = lastX_ = (int)(warmX_ / warm_);
+                    downY_ = lastY_ = (int)(warmY_ / warm_);
+                    downMs_ = ms;
+                    warm_ = 0; warmX_ = warmY_ = 0;
+                    handleTouch({TouchEvt::DOWN, lastX_, lastY_});
+                }
+            } else {
+                const int nx = (lastX_ * 3 + x) / 4, ny = (lastY_ * 3 + y) / 4;   // light smoothing
+                if (abs(nx - lastX_) >= 2 || abs(ny - lastY_) >= 2) {
+                    lastX_ = nx;
+                    lastY_ = ny;
+                    handleTouch({TouchEvt::MOVE, nx, ny});
+                }
             }
-        } else if (pressed_ && released) {
-            pressed_ = false;
-            handleTouch({TouchEvt::UP, lastX_, lastY_});
+        } else if (!holding) {
+            warm_ = 0; warmX_ = warmY_ = 0;
+            if (pressed_) {
+                pressed_ = false;
+                handleTouch({TouchEvt::UP, lastX_, lastY_});
+            }
         }
     }
 
@@ -397,8 +420,7 @@ void App::tick() {
     switch (screen_) {
         case SCR_MAIN: {
             if (uiVisible_ && s.autoHideSec && ms - lastInteract_ > (uint32_t)s.autoHideSec * 1000U && !notice_.active) {
-                uiVisible_ = false;
-                dirty_ = true;
+                setButtonsVisible(false);
             }
             static uint32_t lastMain = 0;
             if (ms - lastMain >= 40) {
@@ -444,13 +466,27 @@ void App::handleTouch(const TouchEvt &e) {
 }
 
 void App::mainTouch(const TouchEvt &e) {
-    if (e.kind != TouchEvt::UP) return;
+    const bool inGear = inRect(e.x, e.y, 0, 0, 72, 72);
+    const bool inPower = inRect(e.x, e.y, W - 72, 0, 72, 72);
+    if (e.kind == TouchEvt::DOWN) {
+        if (uiVisible_ && !notice_.active) {
+            pressedBtn_ = inGear ? 1 : (inPower ? 2 : 0);
+            if (pressedBtn_) drawButton(pressedBtn_, true);
+        }
+        return;
+    }
+    if (e.kind == TouchEvt::MOVE) {
+        const int now = inGear ? 1 : (inPower ? 2 : 0);
+        if (pressedBtn_ && now != pressedBtn_) { drawButton(pressedBtn_, false); pressedBtn_ = 0; }
+        return;
+    }
+    const int was = pressedBtn_;
+    if (pressedBtn_) { drawButton(pressedBtn_, false); pressedBtn_ = 0; }
     if (notice_.active) { endNotice(); return; }
-    if (!uiVisible_) { uiVisible_ = true; dirty_ = true; return; }
-    if (inRect(e.x, e.y, 0, 0, 52, 52)) { openSettings(0); return; }
-    if (inRect(e.x, e.y, W - 52, 0, 52, 52)) { doPower(); return; }
-    uiVisible_ = false;     // tap on an empty area hides the buttons
-    dirty_ = true;
+    if (!uiVisible_) { setButtonsVisible(true); return; }
+    if (was == 1 && inGear) { openSettings(0); return; }
+    if (was == 2 && inPower) { doPower(); return; }
+    if (e.y >= 72) setButtonsVisible(false);       // a tap on the clock area hides the buttons
 }
 
 // ------------------------------------------------------------------------------------------
@@ -1218,8 +1254,8 @@ void App::drawCalib() {
     }
 }
 
-void App::calibRaw(bool pressed, int rx, int ry) {
-    if (pressed) {
+void App::calibRaw(bool valid, bool holding, int rx, int ry) {
+    if (valid) {
         if (calSkip_ < 3) { ++calSkip_; return; }    // ignore the first, noisy samples
         if (calN_ % 4 == 0) {
             char t[40];
@@ -1232,6 +1268,7 @@ void App::calibRaw(bool pressed, int rx, int ry) {
         ++calN_;
         return;
     }
+    if (holding) return;                              // brief dropout while the finger is down
     if (calN_ >= 5) {
         calRaw_[calStep_][0] = (int)(calSumX_ / calN_);
         calRaw_[calStep_][1] = (int)(calSumY_ / calN_);

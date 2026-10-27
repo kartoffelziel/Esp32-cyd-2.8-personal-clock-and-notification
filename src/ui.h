@@ -74,6 +74,8 @@ private:
     void mainTouch(const TouchEvt &e);
     void doPower();
     void wake();
+    void setButtonsVisible(bool visible);
+    void drawButton(int which, bool pressed);
 
     // settings
     Row &addRow(RowKind kind, const char *label, int h);
@@ -116,7 +118,7 @@ private:
     // calibration
     void startCalibration();
     void drawCalib();
-    void calibRaw(bool pressed, int rx, int ry);
+    void calibRaw(bool valid, bool holding, int rx, int ry);
     void calibTouch(const TouchEvt &e);
 
     // notification
@@ -154,6 +156,10 @@ private:
     int downX_ = 0, downY_ = 0, lastX_ = 0, lastY_ = 0;
     uint32_t downMs_ = 0;
     int stable_ = 0;
+    int warm_ = 0;
+    long warmX_ = 0, warmY_ = 0;
+    uint32_t lastRawMs_ = 0;
+    int pressedBtn_ = 0;           // 1 = gear, 2 = power while a finger rests on it
     // settings
     int tab_ = 0;
     std::vector<Row> rows_;

@@ -17,7 +17,7 @@ void settingsDefaults(Settings &s) {
     s.autoSky = 1;
     s.bgColor = rgb(0, 0, 0);
     s.powerMode = 0;
-    s.autoHideSec = 8;
+    s.autoHideSec = 15;
     s.flipped = 0;
     s.clockFont = 2;            // "Hẹp"
     s.clockSize = 100;
