@@ -227,8 +227,36 @@ int main() {
         App b; settingsDefaults(b.s); b.s.cal = a.s.cal; b.s.cal.valid = 1; b.s.autoHideSec = 0; settingsSave(b.s); b.begin(); run(b, 100);
         b.handleTouch({TouchEvt::DOWN, 24, 24});
         shot("21_gear_pressed");
-        b.handleTouch({TouchEvt::UP, 200, 200});    // slid away: no action
-        CHECK(b.screen() == App::SCR_MAIN);
+        b.handleTouch({TouchEvt::UP, 200, 200});    // finger drifted: the press that landed on the gear still counts
+        CHECK(b.screen() == App::SCR_SETTINGS);
+    }
+
+    // ---- lift-off garbage: the last samples before release read somewhere else entirely -------------------
+    {
+        App b; settingsDefaults(b.s); b.s.cal = a.s.cal; b.s.cal.valid = 1; b.s.autoHideSec = 0; settingsSave(b.s); b.begin(); run(b, 100);
+        const int rxg = b.s.cal.a0 + (24 - 20) * (b.s.cal.a1 - b.s.cal.a0) / 279;
+        const int ryg = b.s.cal.b0 + (24 - 20) * (b.s.cal.b1 - b.s.cal.b0) / 199;
+        host_touch(true, rxg, ryg);
+        for (int i = 0; i < 12; ++i) { host_advance(20); b.tick(); }
+        host_touch(true, 2000, 2200);                       // 3 garbage samples while the finger lifts
+        for (int i = 0; i < 3; ++i) { host_advance(20); b.tick(); }
+        host_touch(false, 0, 0);
+        for (int i = 0; i < 8; ++i) { host_advance(20); b.tick(); }
+        printf("screen after lift-off garbage: %d\n", (int)b.screen());
+        CHECK(b.screen() == App::SCR_SETTINGS);
+    }
+    // ---- a drifting finger on the power icon still powers the screen off -----------------------------------
+    {
+        App b; settingsDefaults(b.s); b.s.cal = a.s.cal; b.s.cal.valid = 1; b.s.autoHideSec = 0; settingsSave(b.s); b.begin(); run(b, 100);
+        const int rxp = b.s.cal.a0 + (296 - 20) * (b.s.cal.a1 - b.s.cal.a0) / 279;
+        const int ryp = b.s.cal.b0 + (24 - 20) * (b.s.cal.b1 - b.s.cal.b0) / 199;
+        host_touch(true, rxp, ryp);
+        for (int i = 0; i < 10; ++i) { host_advance(20); b.tick(); }
+        host_touch(true, rxp - 900, ryp + 700);
+        for (int i = 0; i < 2; ++i) { host_advance(20); b.tick(); }
+        host_touch(false, 0, 0);
+        for (int i = 0; i < 8; ++i) { host_advance(20); b.tick(); }
+        CHECK(b.screenIsOff());
     }
     printf("fails=%d blits=%ld\n", g_fail, g_gfx.blits);
     return g_fail != 0;
