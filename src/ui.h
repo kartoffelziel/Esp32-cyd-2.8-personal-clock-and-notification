@@ -160,6 +160,14 @@ private:
     long warmX_ = 0, warmY_ = 0;
     uint32_t lastRawMs_ = 0;
     int pressedBtn_ = 0;           // 1 = gear, 2 = power while a finger rests on it
+    // Recent mapped touch samples (newest last). Readings at the moment the finger lifts are
+    // unreliable on a resistive panel, so taps and releases use older, stable samples.
+    struct TouchSample { uint32_t ms; int x, y; };
+    TouchSample ring_[8];
+    int ringCount_ = 0;
+    void pushSample(uint32_t ms, int x, int y);
+    void medianRecent(int &x, int &y) const;
+    void stableBefore(uint32_t beforeMs, int &x, int &y) const;
     // settings
     int tab_ = 0;
     std::vector<Row> rows_;

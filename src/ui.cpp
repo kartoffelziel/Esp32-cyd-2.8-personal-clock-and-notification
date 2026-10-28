@@ -362,6 +362,34 @@ void App::doPower() {
     }
 }
 
+void App::pushSample(uint32_t ms, int x, int y) {
+    if (ringCount_ == 8) {
+        for (int i = 1; i < 8; ++i) ring_[i - 1] = ring_[i];
+        ringCount_ = 7;
+    }
+    ring_[ringCount_++] = {ms, x, y};
+}
+
+// Median of the last three samples: removes single-sample spikes without adding lag.
+void App::medianRecent(int &x, int &y) const {
+    const int n = ringCount_ < 3 ? ringCount_ : 3;
+    int xs[3], ys[3];
+    for (int i = 0; i < n; ++i) { xs[i] = ring_[ringCount_ - n + i].x; ys[i] = ring_[ringCount_ - n + i].y; }
+    for (int i = 1; i < n; ++i)
+        for (int j = i; j > 0 && xs[j] < xs[j - 1]; --j) std::swap(xs[j], xs[j - 1]);
+    for (int i = 1; i < n; ++i)
+        for (int j = i; j > 0 && ys[j] < ys[j - 1]; --j) std::swap(ys[j], ys[j - 1]);
+    x = n ? xs[n / 2] : 0;
+    y = n ? ys[n / 2] : 0;
+}
+
+// Newest sample that is older than `beforeMs`; falls back to the oldest one.
+void App::stableBefore(uint32_t beforeMs, int &x, int &y) const {
+    for (int i = ringCount_ - 1; i >= 0; --i)
+        if ((int32_t)(ring_[i].ms - beforeMs) <= 0) { x = ring_[i].x; y = ring_[i].y; return; }
+    if (ringCount_ > 0) { x = ring_[0].x; y = ring_[0].y; }
+}
+
 void App::tick() {
     const uint32_t ms = hal_millis();
     int rx = 0, ry = 0;
@@ -379,6 +407,7 @@ void App::tick() {
         if (valid) {
             int x, y;
             mapTouch(c, rx, ry, x, y);
+            pushSample(ms, x, y);
             if (!pressed_) {
                 // average the first samples: a finger that has just landed reads inaccurately
                 warmX_ += x; warmY_ += y; ++warm_;
@@ -391,19 +420,23 @@ void App::tick() {
                     handleTouch({TouchEvt::DOWN, lastX_, lastY_});
                 }
             } else {
-                const int nx = (lastX_ * 3 + x) / 4, ny = (lastY_ * 3 + y) / 4;   // light smoothing
-                if (abs(nx - lastX_) >= 2 || abs(ny - lastY_) >= 2) {
-                    lastX_ = nx;
-                    lastY_ = ny;
-                    handleTouch({TouchEvt::MOVE, nx, ny});
+                int mx, my;
+                medianRecent(mx, my);
+                if (abs(mx - lastX_) >= 3 || abs(my - lastY_) >= 3) {
+                    lastX_ = mx;
+                    lastY_ = my;
+                    handleTouch({TouchEvt::MOVE, mx, my});
                 }
             }
         } else if (!holding) {
             warm_ = 0; warmX_ = warmY_ = 0;
             if (pressed_) {
                 pressed_ = false;
-                handleTouch({TouchEvt::UP, lastX_, lastY_});
+                int ux = lastX_, uy = lastY_;
+                stableBefore(lastRawMs_ - 100, ux, uy);          // ignore the last 100 ms (lift-off noise)
+                handleTouch({TouchEvt::UP, ux, uy});
             }
+            ringCount_ = 0;
         }
     }
 
@@ -475,17 +508,13 @@ void App::mainTouch(const TouchEvt &e) {
         }
         return;
     }
-    if (e.kind == TouchEvt::MOVE) {
-        const int now = inGear ? 1 : (inPower ? 2 : 0);
-        if (pressedBtn_ && now != pressedBtn_) { drawButton(pressedBtn_, false); pressedBtn_ = 0; }
-        return;
-    }
+    if (e.kind == TouchEvt::MOVE) return;          // drift never cancels a tap: lift-off readings are unreliable
     const int was = pressedBtn_;
     if (pressedBtn_) { drawButton(pressedBtn_, false); pressedBtn_ = 0; }
     if (notice_.active) { endNotice(); return; }
     if (!uiVisible_) { setButtonsVisible(true); return; }
-    if (was == 1 && inGear) { openSettings(0); return; }
-    if (was == 2 && inPower) { doPower(); return; }
+    if (was == 1) { openSettings(0); return; }
+    if (was == 2) { doPower(); return; }
     if (e.y >= 72) setButtonsVisible(false);       // a tap on the clock area hides the buttons
 }
 
