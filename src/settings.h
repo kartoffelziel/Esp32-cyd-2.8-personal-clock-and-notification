@@ -4,8 +4,8 @@
 struct Calibration {
     uint8_t valid;
     uint8_t swap;               // screen X follows the raw Y channel
-    int16_t a0, a1;             // raw values at screen x = 20 and x = 299
-    int16_t b0, b1;             // raw values at screen y = 20 and y = 219
+    int16_t a0, a1;             // raw values at screen x = 40 and x = 279
+    int16_t b0, b1;             // raw values at screen y = 40 and y = 199
 };
 
 struct Settings {

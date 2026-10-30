@@ -37,6 +37,7 @@ int median3(int a, int b, int c) {
     return c < lo ? lo : (c > hi ? hi : c);
 }
 
+bool g_irqUsable = false;       // /PENIRQ idles high at boot, so it can be trusted as a pen-down signal
 enum { REQ_NONE, REQ_CONNECT } g_wifiReq = REQ_NONE;
 uint32_t g_wifiStart = 0;
 }  // namespace
@@ -49,6 +50,10 @@ void hal_init() {
     pinMode(kTouchIrq, INPUT);
     pinMode(kBootPin, INPUT_PULLUP);
     touchSpi.begin(kTouchClk, kTouchMiso, kTouchMosi, kTouchCs);
+    // Idle level check: if the pin does not sit high while nobody touches, ignore it (not wired / stuck).
+    delay(30);
+    g_irqUsable = true;
+    for (int i = 0; i < 20; ++i) { if (digitalRead(kTouchIrq) != HIGH) g_irqUsable = false; delay(4); }
     ledcSetup(0, 5000, 8);
     ledcAttachPin(kBacklightPin, 0);
     ledcWrite(0, 0);                            // dark until the first frame is drawn
@@ -77,17 +82,32 @@ void hal_backlight(uint8_t level) { ledcWrite(0, level); }
 void hal_set_flipped(bool flipped) { gfx_set_flipped(flipped); }
 
 // ---- touch -----------------------------------------------------------------------------------------------
+namespace {
+// Mean of the middle values of n samples (drops the min and the max): stable even on a light touch.
+int trimmedMean(int *v, int n) {
+    int lo = v[0], hi = v[0], sum = 0;
+    for (int i = 0; i < n; ++i) { if (v[i] < lo) lo = v[i]; if (v[i] > hi) hi = v[i]; sum += v[i]; }
+    return (sum - lo - hi) / (n - 2);
+}
+}  // namespace
+
 bool hal_touch_read(int &rawX, int &rawY) {
+    // /PENIRQ is pulled low by the controller only while the panel is really touched. The pressure
+    // formula alone can read "pressed" on some boards even with no finger, which would hold a press
+    // open forever (no release -> no tap).
+    if (g_irqUsable && digitalRead(kTouchIrq) != LOW) return false;
     const int z1 = readXpt(0xB0);
     const int z2 = readXpt(0xC0);
     if (z1 + 4095 - z2 < 400) return false;      // not pressed hard enough
     readXpt(0xD0);                               // first conversion after idle is noisy
-    int xs[3], ys[3];
-    for (int i = 0; i < 3; ++i) { xs[i] = readXpt(0xD0); ys[i] = readXpt(0x90); }
-    rawX = median3(xs[0], xs[1], xs[2]);
-    rawY = median3(ys[0], ys[1], ys[2]);
+    int xs[6], ys[6];
+    for (int i = 0; i < 6; ++i) { xs[i] = readXpt(0xD0); ys[i] = readXpt(0x90); }
+    rawX = trimmedMean(xs, 6);
+    rawY = trimmedMean(ys, 6);
     return true;
 }
+
+bool hal_boot_pressed() { return digitalRead(kBootPin) == LOW; }
 
 // ---- storage -------------------------------------------------------------------------------------------------
 size_t hal_store_read(const char *key, void *buf, size_t maxLen) {

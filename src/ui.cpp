@@ -314,8 +314,8 @@ void mapTouch(const Calibration &c, int rx, int ry, int &x, int &y) {
     int db = c.b1 - c.b0;
     if (da == 0) da = 1;
     if (db == 0) db = 1;
-    x = 20 + (ax - c.a0) * 279 / da;
-    y = 20 + (ay - c.b0) * 199 / db;
+    x = 40 + (ax - c.a0) * 239 / da;
+    y = 40 + (ay - c.b0) * 159 / db;
     x = x < 0 ? 0 : (x > W - 1 ? W - 1 : x);
     y = y < 0 ? 0 : (y > H - 1 ? H - 1 : y);
 }
@@ -440,6 +440,28 @@ void App::tick() {
         }
     }
 
+    // BOOT button: always works, independent of the touch panel.
+    //   short press: main -> settings, anything else -> back to the clock;  hold 1.5 s: screen off / wake
+    {
+        static bool bootDown = false, bootLong = false;
+        static uint32_t bootAt = 0;
+        const bool b = hal_boot_pressed();
+        if (b && !bootDown) { bootDown = true; bootLong = false; bootAt = ms; }
+        if (b && bootDown && !bootLong && ms - bootAt >= 1500) {
+            bootLong = true;
+            if (screenOff_) wake(); else doPower();
+        }
+        if (!b && bootDown) {
+            bootDown = false;
+            if (!bootLong && !screenOff_ && ms - bootAt >= 40) {
+                if (screen_ == SCR_MAIN) openSettings(0);
+                else if (screen_ == SCR_SETTINGS) { commit(); backToMain(); }
+                else if (screen_ == SCR_ADJUST) { commit(); openSettings(2); }
+                else if (screen_ == SCR_KEYBOARD) { screen_ = SCR_SETTINGS; buildRows(); drawSettingsFull(); }
+            }
+        }
+    }
+
     if (screenOff_) return;
 
     // network / time bookkeeping once a second
@@ -498,9 +520,14 @@ void App::handleTouch(const TouchEvt &e) {
     }
 }
 
+// Fixed corner buttons: gear top-left, power top-right. Nothing else on this screen reacts to a tap,
+// so a stray touch can never hide or move them.
+static bool inGearZone(int x, int y) { return x < 72 && y < 72; }
+static bool inPowerZone(int x, int y) { return x >= W - 72 && y < 72; }
+
 void App::mainTouch(const TouchEvt &e) {
-    const bool inGear = inRect(e.x, e.y, 0, 0, 72, 72);
-    const bool inPower = inRect(e.x, e.y, W - 72, 0, 72, 72);
+    const bool inGear = inGearZone(e.x, e.y);
+    const bool inPower = inPowerZone(e.x, e.y);
     if (e.kind == TouchEvt::DOWN) {
         if (uiVisible_ && !notice_.active) {
             pressedBtn_ = inGear ? 1 : (inPower ? 2 : 0);
@@ -512,10 +539,12 @@ void App::mainTouch(const TouchEvt &e) {
     const int was = pressedBtn_;
     if (pressedBtn_) { drawButton(pressedBtn_, false); pressedBtn_ = 0; }
     if (notice_.active) { endNotice(); return; }
-    if (!uiVisible_) { setButtonsVisible(true); return; }
-    if (was == 1) { openSettings(0); return; }
-    if (was == 2) { doPower(); return; }
-    if (e.y >= 72) setButtonsVisible(false);       // a tap on the clock area hides the buttons
+    if (!uiVisible_) {                              // only matters when auto-hide is on: a corner tap brings them back
+        if (inGear || inPower) setButtonsVisible(true);
+        return;
+    }
+    if (was == 1) openSettings(0);
+    else if (was == 2) doPower();
 }
 
 // ------------------------------------------------------------------------------------------
@@ -1240,8 +1269,8 @@ void App::keyboardTouch(const TouchEvt &e) {
 // Touch calibration
 // ------------------------------------------------------------------------------------------
 namespace {
-const int kCalX[4] = {20, 299, 20, 299};
-const int kCalY[4] = {20, 20, 219, 219};
+const int kCalX[4] = {40, 279, 40, 279};
+const int kCalY[4] = {40, 40, 199, 199};
 
 void crosshair(int x, int y, uint16_t c) {
     gfx().drawLine(x - 14, y, x + 14, y, c);
@@ -1273,7 +1302,7 @@ void App::drawCalib() {
         char t[40];
         snprintf(t, sizeof(t), "Chạm đúng giữa dấu + (%d/4)", calStep_ + 1);
         drawTextCentered(TF_B18, W / 2, 96, t, rgb(255, 255, 255), black);
-        drawTextCentered(TF_R14, W / 2, 124, "Giữ ngón tay hoặc bút đầu mềm trong 1 giây", rgb(170, 176, 190), black);
+        drawTextCentered(TF_R14, W / 2, 124, "Giữ ngón tay trong 1 giây rồi nhấc ra", rgb(170, 176, 190), black);
         if (calMsg_) drawTextCentered(TF_B14, W / 2, 150, "Chưa đúng, hãy chạm lại từ dấu đầu tiên", C_BAD, black);
     } else {
         drawTextCentered(TF_B18, W / 2, 40, "Chạm thử", rgb(255, 255, 255), black);
@@ -1292,10 +1321,16 @@ void App::calibRaw(bool valid, bool holding, int rx, int ry) {
             gfx().fillRect(0, 222, W, 18, rgb(0, 0, 0));
             drawText(TF_R12, 8, 223, t, rgb(110, 120, 140), Bg::solid(0));
         }
+        calIdleShown_ = false;
         calSumX_ += rx;
         calSumY_ += ry;
         ++calN_;
         return;
+    }
+    if (!calIdleShown_ && !holding) {                 // show that the panel reports "not touched"
+        gfx().fillRect(0, 222, W, 18, rgb(0, 0, 0));
+        drawText(TF_R12, 8, 223, "chua cham", rgb(110, 120, 140), Bg::solid(0));
+        calIdleShown_ = true;
     }
     if (holding) return;                              // brief dropout while the finger is down
     if (calN_ >= 5) {

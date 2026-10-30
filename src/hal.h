@@ -16,6 +16,7 @@ void hal_set_flipped(bool flipped);    // rotate the picture 180 degrees
 
 // ---- touch (12-bit XPT2046 readings, unrotated) ------------------------------
 bool hal_touch_read(int &rawX, int &rawY);
+bool hal_boot_pressed();               // BOOT button on the board (active low)
 
 // ---- persistent storage -------------------------------------------------------
 size_t hal_store_read(const char *key, void *buf, size_t maxLen);   // bytes read, 0 = missing

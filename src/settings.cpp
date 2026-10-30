@@ -6,7 +6,7 @@
 #include <string.h>
 
 static const uint32_t kMagic = 0x43594331;  // "CYC1"
-static const uint16_t kVersion = 2;
+static const uint16_t kVersion = 3;
 
 void settingsDefaults(Settings &s) {
     memset(&s, 0, sizeof(s));
@@ -17,7 +17,7 @@ void settingsDefaults(Settings &s) {
     s.autoSky = 1;
     s.bgColor = rgb(0, 0, 0);
     s.powerMode = 0;
-    s.autoHideSec = 15;
+    s.autoHideSec = 0;
     s.flipped = 0;
     s.clockFont = 2;            // "Hẹp"
     s.clockSize = 100;

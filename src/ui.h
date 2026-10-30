@@ -196,6 +196,7 @@ private:
     long calSumX_ = 0, calSumY_ = 0;
     int calN_ = 0;
     int calSkip_ = 0;
+    bool calIdleShown_ = false;
     Calibration calTmp_{};
     bool calTest_ = false;
     int calMsg_ = 0;
