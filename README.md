@@ -5,8 +5,10 @@ số và chữ được vẽ ở đúng kích thước gốc nên nét sắc, kh
 
 ## Có gì
 
-**Màn hình chính:** đồng hồ `HH:MM` ở giữa, thứ / ngày / tháng bên dưới, nút cài đặt (góc trái) và nút nguồn (góc phải).
-Chạm vào chỗ trống để ẩn các nút (chỉ còn đồng hồ), chạm lần nữa để hiện; có thể đặt tự ẩn sau N giây.
+**Màn hình chính:** đồng hồ `HH:MM` ở giữa, thứ / ngày / tháng bên dưới, nút cài đặt **cố định ở góc trên trái** và nút nguồn **cố định ở góc trên phải**.
+Chạm vào chỗ khác không làm gì cả. Muốn chỉ còn đồng hồ thì bật tự ẩn nút ở Cài đặt → Chung; khi nút đang ẩn, chạm vào một trong hai góc để hiện lại.
+
+**Nút BOOT trên board** luôn dùng được, kể cả khi cảm ứng hỏng: bấm ngắn = mở / thoát cài đặt, giữ 1,5 giây = tắt hoặc bật màn hình.
 
 **Cài đặt** có 4 tab:
 
@@ -43,8 +45,8 @@ Build tại máy: `pip install platformio` rồi `pio run -e cyd_inv`. Môi trư
 
 ## Lần đầu bật máy
 
-Màn hình hiện **hiệu chỉnh cảm ứng**: chạm đúng giữa dấu `+` ở 4 góc, rồi chạm thử và bấm **Lưu**. Cách này tự dò hướng của tấm cảm ứng
-nên không cần biết board đặt xoay thế nào. Dòng `raw x, y` ở cuối màn hình hiện số đọc thô, nếu chạm mà số không đổi thì cảm ứng chưa được đọc.
+Màn hình hiện **hiệu chỉnh cảm ứng**: chạm đúng giữa dấu `+` ở 4 điểm (cách mép máy một đoạn để ngón tay chạm tới được), rồi chạm thử và bấm **Lưu**. Cách này tự dò hướng của tấm cảm ứng
+nên không cần biết board đặt xoay thế nào. Dòng ở cuối màn hình hiện `raw x, y` khi đang chạm và `chua cham` khi nhấc tay; nếu nhấc tay mà vẫn hiện số thì cảm ứng đang báo chạm giả.
 Làm lại bất cứ lúc nào ở Cài đặt → Chung → Hiệu chỉnh cảm ứng.
 
 ## Giờ lấy từ đâu
